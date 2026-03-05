@@ -65,24 +65,33 @@ class Counting(commands.Cog):
         )
 
     # ============================================================
-    # Direction Flip + Restart Logic
+    # Direction Flip + Restart Logic (FIXED)
     # ============================================================
 
     async def flip_direction_and_restart(self, guild, channel, last_correct):
         mode = await self.config.guild(guild).mode()
 
+        # Flip direction
         new_mode = "DOWN" if mode == "UP" else "UP"
         await self.config.guild(guild).mode.set(new_mode)
 
+        # Announce direction change
         await channel.send(f"**Switching direction → {new_mode}!**")
+
+        # Bot posts the restart number (last correct)
         await channel.send(str(last_correct))
 
+        # Reset round stats
         await self.config.guild(guild).current_number.set(last_correct)
         await self.config.guild(guild).last_user.set(None)
         await self.config.guild(guild).round_length.set(0)
         await self.config.guild(guild).round_high.set(last_correct)
 
-        await self.update_topic(channel, last_correct + (1 if new_mode == "UP" else -1), new_mode, 0)
+        # Compute next expected number
+        next_number = last_correct + (1 if new_mode == "UP" else -1)
+
+        # Update topic immediately (FIXED)
+        await self.update_topic(channel, next_number, new_mode, 0)
 
     # ============================================================
     # Message Listener
