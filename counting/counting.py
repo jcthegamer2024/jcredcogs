@@ -45,6 +45,18 @@ class Counting(commands.Cog):
 
         await ctx.send(f"Starting number set to **{number}**")
 
+    @commands.command()
+    @commands.guild_only()
+    async def countdebug(self, ctx):
+        """Debug: show stored channel ID and current channel ID."""
+        stored = await self.config.guild(ctx.guild).channel()
+        await ctx.send(
+            f"Stored channel ID: `{stored}`\n"
+            f"This channel ID: `{ctx.channel.id}`\n"
+            f"Match: `{stored == ctx.channel.id}`"
+        )
+        
+
     # ============================================================
     # Helpers
     # ============================================================
