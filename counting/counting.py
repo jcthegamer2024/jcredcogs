@@ -13,7 +13,8 @@ class Counting(commands.Cog):
             last_user=None,
             mode="UP",  # UP or DOWN
             round_high=0,
-            round_length=0
+            round_length=0,
+            start_number=0
         )
 
     # ============================================================
@@ -35,6 +36,13 @@ class Counting(commands.Cog):
         """Set the starting number."""
         await self.config.guild(ctx.guild).current_number.set(number)
         await self.config.guild(ctx.guild).round_high.set(number)
+        await self.config.guild(ctx.guild).round_length.set(0)
+        await self.config.guild(ctx.guild).start_number.set(number)
+        await self.config.guild(ctx.guild).mode.set("UP")
+
+        # Update topic immediately
+        await self.update_topic(ctx.channel, number + 1, "UP", 0)
+
         await ctx.send(f"Starting number set to **{number}**")
 
     # ============================================================
