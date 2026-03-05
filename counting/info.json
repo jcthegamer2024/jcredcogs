@@ -1,0 +1,14 @@
+{
+    "author": ["JC"],
+    "install_msg": "Counting cog installed! Use setcountchannel, setcountstart, and enjoy the up/down counting game.",
+    "name": "Counting",
+    "short": "A direction-switching counting game.",
+    "description": "A counting channel with UP/DOWN mode switching, milestones, turn enforcement, round scoring, and bot-driven restarts.",
+    "tags": ["fun", "game", "counting", "numbers"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "required_cogs": {},
+    "requirements": [],
+    "type": "COG"
+}
