@@ -1,0 +1,14 @@
+{
+    "author": ["JC"],
+    "install_msg": "Thanks for installing the WordChain cog!",
+    "name": "WordChain",
+    "short": "A simple word chain game.",
+    "description": "Players must post words where each new word starts with the last letter of the previous one.",
+    "tags": ["fun", "game", "word"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "required_cogs": {},
+    "requirements": [],
+    "type": "COG"
+}
