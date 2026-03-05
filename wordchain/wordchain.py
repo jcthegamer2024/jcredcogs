@@ -1,8 +1,9 @@
 import discord
 from redbot.core import commands, Config
+import re
 
 class WordChain(commands.Cog):
-    """A word chain game with scoring and turn enforcement."""
+    """A word chain game with scoring, turn enforcement, and sentence support."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -26,30 +27,45 @@ class WordChain(commands.Cog):
         score = await self.config.guild(guild).round_score()
         await channel.send(f"**== GAME ENDED - SCORE: {score} ==**")
 
-        # Reset game state
         await self.config.guild(guild).last_word.set(None)
         await self.config.guild(guild).last_user.set(None)
         await self.config.guild(guild).round_score.set(0)
 
+    def extract_first_alpha(self, text: str):
+        """Return the first alphabetic character in the message."""
+        for c in text:
+            if c.isalpha():
+                return c.lower()
+        return None
+
+    def extract_last_alpha(self, text: str):
+        """Return the last alphabetic character in the message."""
+        for c in reversed(text):
+            if c.isalpha():
+                return c.lower()
+        return None
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # Ignore bots and DMs
         if message.author.bot or not message.guild:
             return
 
         guild = message.guild
         channel_id = await self.config.guild(guild).channel()
         if channel_id is None:
-            return  # No channel configured
+            return
 
         if message.channel.id != channel_id:
-            return  # Not in the wordchain channel
-
-        content = message.content.strip().lower()
-
-        # Only allow single alphabetic words
-        if " " in content or not content.isalpha():
             return
+
+        content = message.content.strip()
+
+        # Extract first and last alphabetic letters
+        first_letter = self.extract_first_alpha(content)
+        last_letter = self.extract_last_alpha(content)
+
+        if not first_letter or not last_letter:
+            return  # No usable letters
 
         last_word = await self.config.guild(guild).last_word()
         last_user = await self.config.guild(guild).last_user()
@@ -61,22 +77,20 @@ class WordChain(commands.Cog):
             await self.end_game(guild, message.channel)
             return
 
-        # First word of the game
+        # First message of the game
         if last_word is None:
-            await self.config.guild(guild).last_word.set(content)
+            await self.config.guild(guild).last_word.set(last_letter)
             await self.config.guild(guild).last_user.set(message.author.id)
             await self.config.guild(guild).round_score.set(1)
             await message.add_reaction("✅")
             return
 
-        # Check chain rule
-        if content[0] == last_word[-1]:
-            # Valid word
-            await self.config.guild(guild).last_word.set(content)
+        # Check chain rule: first letter must match previous last letter
+        if first_letter == last_word:
+            await self.config.guild(guild).last_word.set(last_letter)
             await self.config.guild(guild).last_user.set(message.author.id)
             await self.config.guild(guild).round_score.set(round_score + 1)
             await message.add_reaction("✅")
         else:
-            # Invalid word → end game
             await message.add_reaction("❌")
             await self.end_game(guild, message.channel)
