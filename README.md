@@ -45,6 +45,20 @@ A feature-rich birthday tracking system with a dynamic auto-updating list and au
 * Non-pinging mention formatted display
 * Fully configurable update and announcement channels
 
+--
+
+### 4. TempVoice
+
+A dynamic temporary voice channel generator with interactive UI controls and automated inactivity cleanup.
+
+**Features**
+
+* Interactive "VC Creation Panel" button to generate personal channels
+* Modal popup interface for customizable user limits (0–99 capacity)
+* Member selector menu to explicitly grant permissions to allowed users
+* One-click general Lock/Unlock access toggle
+* Dedicated control dashboard sent directly inside the new channel's chat
+* Automated background cleanup loop deleting channels empty for 5+ minutes
 ## 🛠 Installation
 
 Add the repo to your Redbot:
