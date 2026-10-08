@@ -7,7 +7,7 @@ from discord.ext import tasks
 from redbot.core import Config, checks, commands
 
 DEFAULT_GUILD = {
-    "birthdays": {},  # str(user_id): {"day": int, "month": int, "year": int}
+    "birthdays": {},  # str(user_id): {"day": int, "month": int, "year": Optional[int]}
     "list_channel_id": None,
     "list_message_id": None,
     "announce_channel_id": None,
@@ -122,7 +122,7 @@ class BirthdayTracker(commands.Cog):
             description="\n".join(lines).strip(),
             color=discord.Color.teal()
         )
-        embed.set_footer(text="Use !bday set DD/MM/YYYY to add your birthday!")
+        embed.set_footer(text="Use !bday set DD/MM/YYYY or DD/MM to add your birthday!")
         return embed
 
     async def update_dynamic_list(self, guild: discord.Guild):
@@ -158,37 +158,51 @@ class BirthdayTracker(commands.Cog):
     async def bday_set(self, ctx, date_str: Optional[str] = None):
         """Set your birthday.
         
-        Format: DD/MM/YYYY
-        Example: !bday set 25/06/2006
+        Format: DD/MM/YYYY or DD/MM
+        Examples: !bday set 25/06/2006 or !bday set 25/06
         """
         if not date_str:
             await ctx.send(
                 "❌ **Missing date format!**\n"
-                "Please provide your birthday in **DD/MM/YYYY** format.\n\n"
-                "**Example:**\n"
-                f"• `{ctx.clean_prefix}bday set 25/06/2006`"
+                "Please provide your birthday in **DD/MM/YYYY** or **DD/MM** format.\n\n"
+                "**Examples:**\n"
+                f"• `{ctx.clean_prefix}bday set 25/06/2006`\n"
+                f"• `{ctx.clean_prefix}bday set 25/06`"
             )
             return
 
+        parsed_date = None
+        has_year = False
+
+        # Try DD/MM/YYYY
         try:
             parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
+            has_year = True
         except ValueError:
-            await ctx.send(
-                "❌ **Invalid date format!** Please strictly use **DD/MM/YYYY**.\n"
-                f"Example: `{ctx.clean_prefix}bday set 25/06/2006`"
-            )
-            return
+            # Try DD/MM without year
+            try:
+                parsed_date = datetime.strptime(date_str, "%d/%m")
+            except ValueError:
+                await ctx.send(
+                    "❌ **Invalid date format!** Please use **DD/MM/YYYY** or **DD/MM**.\n"
+                    f"Examples:\n• `{ctx.clean_prefix}bday set 25/06/2006`\n• `{ctx.clean_prefix}bday set 25/06`"
+                )
+                return
 
         async with self.config.guild(ctx.guild).birthdays() as birthdays:
             birthdays[str(ctx.author.id)] = {
                 "month": parsed_date.month,
                 "day": parsed_date.day,
-                "year": parsed_date.year,
+                "year": parsed_date.year if has_year else None,
             }
 
         month_name = calendar.month_name[parsed_date.month]
         formatted_day = f"{parsed_date.day:02d}"
-        display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
+
+        if has_year:
+            display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
+        else:
+            display_str = f"{formatted_day}. {month_name}"
 
         await ctx.send(f"✅ Saved your birthday as **{display_str}**!")
         
@@ -206,7 +220,6 @@ class BirthdayTracker(commands.Cog):
 
         if removed:
             await ctx.send("✅ Removed your birthday.")
-            # Trigger update AFTER data block exits & saves
             await self.update_dynamic_list(ctx.guild)
         else:
             await ctx.send("❌ You don't have a birthday saved.")
