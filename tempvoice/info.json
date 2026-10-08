@@ -1,0 +1,9 @@
+{
+  "author": ["JC"],
+  "name": "TempVoice",
+  "short": "Dynamic voice channel creator with interactive controls and auto-cleanup.",
+  "description": "Allows users to create custom temporary voice channels via an interactive panel, configure limits, restrict access, and automatically deletes empty channels after 5 minutes.",
+  "tags": ["voice", "tempvc", "utility", "channels"],
+  "min_bot_version": "3.5.0",
+  "end_user_data_statement": "This cog stores temporary voice channel IDs and user preferences for dynamic channel management."
+}
