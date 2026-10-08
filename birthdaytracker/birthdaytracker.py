@@ -205,8 +205,6 @@ class BirthdayTracker(commands.Cog):
             display_str = f"{formatted_day}. {month_name}"
 
         await ctx.send(f"✅ Saved your birthday as **{display_str}**!")
-        
-        # Trigger update AFTER data block exits & saves
         await self.update_dynamic_list(ctx.guild)
 
     @bday.command(name="remove")
@@ -223,6 +221,64 @@ class BirthdayTracker(commands.Cog):
             await self.update_dynamic_list(ctx.guild)
         else:
             await ctx.send("❌ You don't have a birthday saved.")
+
+    @bday.command(name="adminset")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def bday_adminset(self, ctx, member: discord.Member, date_str: str):
+        """[Admin] Set or update the birthday for another user.
+        
+        Format: !bday adminset @user DD/MM/YYYY or DD/MM
+        Examples: !bday adminset @User 25/06/2006
+        """
+        parsed_date = None
+        has_year = False
+
+        try:
+            parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
+            has_year = True
+        except ValueError:
+            try:
+                parsed_date = datetime.strptime(date_str, "%d/%m")
+            except ValueError:
+                await ctx.send(
+                    "❌ **Invalid date format!** Please use **DD/MM/YYYY** or **DD/MM**.\n"
+                    f"Example: `{ctx.clean_prefix}bday adminset {member.mention} 25/06/2006`"
+                )
+                return
+
+        async with self.config.guild(ctx.guild).birthdays() as birthdays:
+            birthdays[str(member.id)] = {
+                "month": parsed_date.month,
+                "day": parsed_date.day,
+                "year": parsed_date.year if has_year else None,
+            }
+
+        month_name = calendar.month_name[parsed_date.month]
+        formatted_day = f"{parsed_date.day:02d}"
+
+        if has_year:
+            display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
+        else:
+            display_str = f"{formatted_day}. {month_name}"
+
+        await ctx.send(f"✅ Set **{member.display_name}**'s birthday to **{display_str}**!")
+        await self.update_dynamic_list(ctx.guild)
+
+    @bday.command(name="adminremove")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def bday_adminremove(self, ctx, member: discord.Member):
+        """[Admin] Remove the birthday for another user."""
+        removed = False
+        async with self.config.guild(ctx.guild).birthdays() as birthdays:
+            if str(member.id) in birthdays:
+                del birthdays[str(member.id)]
+                removed = True
+
+        if removed:
+            await ctx.send(f"✅ Removed **{member.display_name}**'s birthday.")
+            await self.update_dynamic_list(ctx.guild)
+        else:
+            await ctx.send(f"❌ **{member.display_name}** does not have a birthday saved.")
 
     @bday.group(name="dynamiclist")
     @checks.admin_or_permissions(manage_guild=True)
