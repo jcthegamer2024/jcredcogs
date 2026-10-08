@@ -95,7 +95,8 @@ class VCCreationModal(discord.ui.Modal, title="Create Your Voice Channel"):
         await new_vc.send(embed=control_embed, view=control_view)
 
         await interaction.response.send_message(
-            f"✅ Created your voice channel: {new_vc.mention}\nJoin within 5 minutes to keep it active!",
+            f"✅ Created your voice channel: {new_vc.mention}\n"
+            f"💡 *Tip: Open your new voice channel's text chat to access settings like renaming, locking, or deleting it!*",
             ephemeral=True
         )
 
@@ -224,11 +225,9 @@ class VCControlView(discord.ui.View):
 
         current_overwrite = self.channel.overwrites_for(interaction.guild.default_role)
         if current_overwrite.connect is False:
-            # Unlock
             await self.channel.set_permissions(interaction.guild.default_role, connect=None)
             await interaction.response.send_message("🔓 Channel is now **unlocked** for everyone.", ephemeral=True)
         else:
-            # Lock
             await self.channel.set_permissions(interaction.guild.default_role, connect=False)
             await interaction.response.send_message("🔒 Channel is now **locked**. Use **Allow Users** to grant access.", ephemeral=True)
 
@@ -240,7 +239,6 @@ class VCControlView(discord.ui.View):
 
         await interaction.response.send_message("🗑️ Ending voice channel now...", ephemeral=True)
         
-        # Clean up tracking state
         self.cog.active_channels.pop(self.channel.id, None)
         self.cog.empty_timers.pop(self.channel.id, None)
 
@@ -270,9 +268,8 @@ class TempVoice(commands.Cog):
         self.config = Config.get_conf(self, identifier=8473629101, force_registration=True)
         self.config.register_guild(**DEFAULT_GUILD)
 
-        # In-memory tracking
-        self.active_channels: Dict[int, int] = {}  # channel_id: owner_user_id
-        self.empty_timers: Dict[int, int] = {}     # channel_id: empty_seconds
+        self.active_channels: Dict[int, int] = {}
+        self.empty_timers: Dict[int, int] = {}
 
         self.bot.add_view(VCCreationPanelView(self))
         self.cleanup_loop.start()
@@ -290,16 +287,13 @@ class TempVoice(commands.Cog):
         for channel_id in list(self.active_channels.keys()):
             channel = self.bot.get_channel(channel_id)
 
-            # Channel deleted manually or no longer exists
             if not channel or not isinstance(channel, discord.VoiceChannel):
                 channels_to_remove.add(channel_id)
                 continue
 
-            # Check occupancy
             if len(channel.members) == 0:
                 self.empty_timers[channel_id] = self.empty_timers.get(channel_id, 0) + 30
 
-                # Delete after 300 seconds (5 minutes)
                 if self.empty_timers[channel_id] >= 300:
                     try:
                         await channel.delete(reason="TempVC empty for 5 minutes.")
@@ -307,10 +301,8 @@ class TempVoice(commands.Cog):
                         pass
                     channels_to_remove.add(channel_id)
             else:
-                # Reset timer if members are present
                 self.empty_timers[channel_id] = 0
 
-        # Clean tracking dictionaries
         for cid in channels_to_remove:
             self.active_channels.pop(cid, None)
             self.empty_timers.pop(cid, None)
@@ -336,13 +328,14 @@ class TempVoice(commands.Cog):
         embed = discord.Embed(
             title="🎙️ Voice Channel Generator",
             description=(
-                "Click the button below to generate your own personal temporary voice channel!\n\n"
-                "**Features:**\n"
-                "• Custom channel name and capacity limit on creation\n"
-                "• Rename channel anytime\n"
-                "• Lock or permit specific members\n"
-                "• Instant owner deletion option via `End VC` button\n"
-                "• Auto-deletes 5 minutes after everyone leaves"
+                "Click the button below to generate your personal temporary voice channel!\n\n"
+                "**How it works:**\n"
+                "1. Click **Create Voice Channel** and enter your desired channel name and limit.\n"
+                "2. Join your new voice channel.\n"
+                "3. Open the **integrated text chat inside your voice channel** to access all controls:\n"
+                "   • ✏️ **Rename VC** | 🔢 **Set Limit** | 🔐 **Allow Users**\n"
+                "   • 🔒 **Lock / Unlock** | 🗑️ **End VC** (Immediate Delete)\n\n"
+                "⚠️ *Channels delete automatically after 5 minutes of inactivity.*"
             ),
             color=discord.Color.teal()
         )
