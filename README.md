@@ -32,6 +32,19 @@ A dynamic, direction‑switching counting game with milestones, scoring, and bot
 
 ---
 
+### 3. BirthdayTracker
+
+A feature-rich birthday tracking system with a dynamic auto-updating list and automatic daily birthday announcements.
+
+**Features**
+
+* Vertical dynamic list updating live from January to December
+* Flexible date inputs (`MM/DD/YYYY` or `MM/DD` for optional year)
+* Automatic ordinal age calculation (e.g., 21st, 22nd, 23rd)
+* Embed-based birthday announcements in a designated channel
+* Non-pinging mention formatted display
+* Fully configurable update and announcement channels
+
 ## 🛠 Installation
 
 Add the repo to your Redbot:
