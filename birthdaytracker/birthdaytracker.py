@@ -11,7 +11,7 @@ DEFAULT_GUILD = {
     "list_channel_id": None,
     "list_message_id": None,
     "announce_channel_id": None,
-    "last_announced_date": None,  # Tracks "YYYY-MM-DD" to avoid duplicate daily announcements
+    "last_announced_date": None,  # Tracks "YYYY-MM-DD" to prevent duplicate daily posts
 }
 
 def get_ordinal_suffix(number: int) -> str:
@@ -60,7 +60,6 @@ class BirthdayTracker(commands.Cog):
                 continue
 
             # Process members whose birthday matches today
-            announced_today = False
             for user_id_str, data in birthdays.items():
                 if data["month"] == now.month and data["day"] == now.day:
                     member = guild.get_member(int(user_id_str))
@@ -86,7 +85,6 @@ class BirthdayTracker(commands.Cog):
                     )
 
                     await channel.send(content=member.mention, embed=embed)
-                    announced_today = True
 
             # Mark guild as processed for today
             await self.config.guild(guild).last_announced_date.set(today_str)
@@ -96,7 +94,7 @@ class BirthdayTracker(commands.Cog):
         birthdays = await self.config.guild(guild).birthdays()
 
         if not birthdays:
-            return "No birthdays set yet! Use `!bday set MM/DD/YYYY` to add yours."
+            return "No birthdays set yet! Use `!bday set MM/DD/YYYY` or `!bday set DD/MM/YYYY` to add yours."
 
         months_data = {m: [] for m in range(1, 13)}
         for user_id_str, data in birthdays.items():
@@ -159,34 +157,50 @@ class BirthdayTracker(commands.Cog):
     async def bday_set(self, ctx, date_str: Optional[str] = None):
         """Set your birthday.
         
-        Format: MM/DD/YYYY or MM/DD
-        Example: !bday set 01/30/2008 or !bday set 01/30
+        Supports MM/DD/YYYY, DD/MM/YYYY, MM/DD, or DD/MM
+        Examples: !bday set 06/25/2006 or !bday set 25/06/2006
         """
         if not date_str:
             await ctx.send(
                 "❌ **Missing date format!**\n"
-                "Please provide your birthday in **MM/DD/YYYY** or **MM/DD** format.\n\n"
+                "Please provide your birthday in **MM/DD/YYYY** or **DD/MM/YYYY** format.\n\n"
                 "**Examples:**\n"
-                f"• `{ctx.clean_prefix}bday set 01/30/2008`\n"
-                f"• `{ctx.clean_prefix}bday set 05/23`"
+                f"• `{ctx.clean_prefix}bday set 06/25/2006`\n"
+                f"• `{ctx.clean_prefix}bday set 25/06/2006`"
             )
             return
 
         parsed_date = None
         has_year = False
 
-        try:
-            parsed_date = datetime.strptime(date_str, "%m/%d/%Y")
-            has_year = True
-        except ValueError:
+        # Formats to attempt parsing
+        formats_with_year = ["%m/%d/%Y", "%d/%m/%Y"]
+        formats_without_year = ["%m/%d", "%d/%m"]
+
+        # 1. Try parsing formats with year
+        for fmt in formats_with_year:
             try:
-                parsed_date = datetime.strptime(date_str, "%m/%d")
+                parsed_date = datetime.strptime(date_str, fmt)
+                has_year = True
+                break
             except ValueError:
-                await ctx.send(
-                    "❌ **Invalid date format!** Please use **MM/DD/YYYY** or **MM/DD**.\n"
-                    f"Example: `{ctx.clean_prefix}bday set 01/30/2008`"
-                )
-                return
+                continue
+
+        # 2. Try parsing formats without year
+        if not parsed_date:
+            for fmt in formats_without_year:
+                try:
+                    parsed_date = datetime.strptime(date_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+        if not parsed_date:
+            await ctx.send(
+                "❌ **Invalid date format!** Please use **MM/DD/YYYY** or **DD/MM/YYYY**.\n"
+                f"Example: `{ctx.clean_prefix}bday set 25/06/2006`"
+            )
+            return
 
         async with self.config.guild(ctx.guild).birthdays() as birthdays:
             birthdays[str(ctx.author.id)] = {
@@ -238,3 +252,39 @@ class BirthdayTracker(commands.Cog):
         """Set the channel for daily birthday announcements."""
         await self.config.guild(ctx.guild).announce_channel_id.set(channel.id)
         await ctx.send(f"✅ Birthday announcement channel set to {channel.mention}.")
+
+    @bday.command(name="testannounce")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def test_announce(self, ctx, member: discord.Member):
+        """Test the birthday announcement embed for a specific user."""
+        channel_id = await self.config.guild(ctx.guild).announce_channel_id()
+        if not channel_id:
+            await ctx.send("❌ No announcement channel configured! Set one first using `!bday setannouncechannel #channel`.")
+            return
+
+        channel = ctx.guild.get_channel(channel_id)
+        if not channel:
+            await ctx.send("❌ Configured announcement channel could not be found.")
+            return
+
+        birthdays = await self.config.guild(ctx.guild).birthdays()
+        user_data = birthdays.get(str(member.id))
+
+        now = datetime.now(timezone.utc)
+        if user_data and user_data.get("year"):
+            age = now.year - user_data["year"]
+            bday_text = f"Happy {get_ordinal_suffix(age)} Birthday!"
+        else:
+            bday_text = "Happy Birthday!"
+
+        embed = discord.Embed(
+            title="📣 Birthday Announcement!",
+            color=discord.Color.teal()
+        )
+        embed.description = (
+            "❯ Today is a special Day!\n"
+            f"🎁 Please wish {member.mention} a {bday_text}"
+        )
+
+        await channel.send(content=member.mention, embed=embed)
+        await ctx.send(f"✅ Sent test birthday announcement for {member.mention} to {channel.mention}!")
