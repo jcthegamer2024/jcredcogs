@@ -126,7 +126,7 @@ class BirthdayTracker(commands.Cog):
         return embed
 
     async def update_dynamic_list(self, guild: discord.Guild):
-        """Edits or sends the persistent dynamic birthday list embed."""
+        """Deletes the old message and sends a fresh updated dynamic birthday list embed."""
         channel_id = await self.config.guild(guild).list_channel_id()
         if not channel_id:
             return
@@ -135,17 +135,17 @@ class BirthdayTracker(commands.Cog):
         if not channel:
             return
 
-        embed = await self.build_birthday_embed(guild)
+        # Attempt to delete the old message if it exists
         message_id = await self.config.guild(guild).list_message_id()
-
         if message_id:
             try:
                 msg = await channel.fetch_message(message_id)
-                await msg.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-                return
-            except (discord.NotFound, discord.HTTPException):
+                await msg.delete()
+            except (discord.NotFound, discord.HTTPException, discord.Forbidden):
                 pass
 
+        # Send fresh updated embed and save the new message ID
+        embed = await self.build_birthday_embed(guild)
         new_msg = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         await self.config.guild(guild).list_message_id.set(new_msg.id)
 
