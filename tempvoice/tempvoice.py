@@ -12,6 +12,115 @@ DEFAULT_GUILD = {
 }
 
 
+class VCCreationModal(discord.ui.Modal, title="Create Your Voice Channel"):
+    channel_name = discord.ui.TextInput(
+        label="Voice Channel Name",
+        placeholder="Enter channel name (e.g. Chill Zone)...",
+        min_length=1,
+        max_length=32,
+        required=True,
+    )
+    limit = discord.ui.TextInput(
+        label="User Limit (0 for unlimited)",
+        placeholder="Enter a number between 0 and 99...",
+        min_length=1,
+        max_length=2,
+        default="0",
+        required=False,
+    )
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        category_id = await self.cog.config.guild(guild).category_id()
+
+        if not category_id:
+            await interaction.response.send_message("❌ TempVC category is not configured. An admin must run `!tempvc setcategory`.", ephemeral=True)
+            return
+
+        category = guild.get_channel(category_id)
+        if not category or not isinstance(category, discord.CategoryChannel):
+            await interaction.response.send_message("❌ Configured category was not found.", ephemeral=True)
+            return
+
+        # Validate limit input
+        user_limit = 0
+        if self.limit.value:
+            try:
+                user_limit = int(self.limit.value)
+                if not (0 <= user_limit <= 99):
+                    raise ValueError
+            except ValueError:
+                await interaction.response.send_message("❌ Please enter a valid user limit between **0** and **99**.", ephemeral=True)
+                return
+
+        # Check if user already owns an active voice channel
+        for vc_id, owner_id in self.cog.active_channels.items():
+            if owner_id == interaction.user.id:
+                existing_vc = guild.get_channel(vc_id)
+                if existing_vc:
+                    await interaction.response.send_message(f"❌ You already have an active channel: {existing_vc.mention}", ephemeral=True)
+                    return
+
+        # Create Voice Channel
+        new_vc = await guild.create_voice_channel(
+            name=f"🔊 {self.channel_name.value}",
+            category=category,
+            user_limit=user_limit,
+            reason=f"TempVC created by {interaction.user}"
+        )
+
+        # Track created channel
+        self.cog.active_channels[new_vc.id] = interaction.user.id
+
+        # Send internal control panel embed inside the voice channel's text chat
+        control_embed = discord.Embed(
+            title=f"🎙️ {new_vc.name}",
+            description=(
+                "Welcome to your temporary voice channel!\n\n"
+                "**Controls:**\n"
+                "• ✏️ **Rename VC:** Change your channel's name.\n"
+                "• 🔢 **Set Limit:** Change the maximum users allowed (0-99).\n"
+                "• 🔐 **Allow Users:** Pick specific members permitted to join.\n"
+                "• 🔒 **Lock / Unlock:** Toggle general access for everyone.\n\n"
+                "⚠️ *Note: This channel will automatically delete after 5 minutes if left empty.*"
+            ),
+            color=discord.Color.teal()
+        )
+        control_view = VCControlView(self.cog, new_vc, interaction.user)
+        await new_vc.send(embed=control_embed, view=control_view)
+
+        await interaction.response.send_message(
+            f"✅ Created your voice channel: {new_vc.mention}\nJoin within 5 minutes to keep it active!",
+            ephemeral=True
+        )
+
+
+class RenameVCModal(discord.ui.Modal, title="Rename Voice Channel"):
+    new_name = discord.ui.TextInput(
+        label="New Voice Channel Name",
+        placeholder="Enter a new name...",
+        min_length=1,
+        max_length=32,
+        required=True,
+    )
+
+    def __init__(self, cog, channel: discord.VoiceChannel):
+        super().__init__()
+        self.cog = cog
+        self.channel = channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        formatted_name = f"🔊 {self.new_name.value.strip()}"
+        await self.channel.edit(name=formatted_name)
+        await interaction.response.send_message(
+            f"✅ Channel renamed to **{formatted_name}**.", ephemeral=True
+        )
+
+
 class UserLimitModal(discord.ui.Modal, title="Set Voice Channel User Limit"):
     limit = discord.ui.TextInput(
         label="User Limit (0 for unlimited)",
@@ -55,7 +164,6 @@ class AllowUserSelect(discord.ui.UserSelect):
         self.channel = channel
 
     async def callback(self, interaction: discord.Interaction):
-        # First ensure @everyone cannot connect if lock mode is engaged
         overwrites = self.channel.overwrites
         overwrites[interaction.guild.default_role] = discord.PermissionOverwrite(connect=False)
 
@@ -85,6 +193,13 @@ class VCControlView(discord.ui.View):
         self.channel = channel
         self.owner = owner
 
+    @discord.ui.button(label="Rename VC", style=discord.ButtonStyle.primary, emoji="✏️")
+    async def rename_vc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner.id:
+            await interaction.response.send_message("❌ Only the channel creator can modify settings.", ephemeral=True)
+            return
+        await interaction.response.send_modal(RenameVCModal(self.cog, self.channel))
+
     @discord.ui.button(label="Set Limit", style=discord.ButtonStyle.secondary, emoji="🔢")
     async def set_limit(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
@@ -92,13 +207,13 @@ class VCControlView(discord.ui.View):
             return
         await interaction.response.send_modal(UserLimitModal(self.cog, self.channel))
 
-    @discord.ui.button(label="Allow Users", style=discord.ButtonStyle.primary, emoji="🔐")
+    @discord.ui.button(label="Allow Users", style=discord.ButtonStyle.secondary, emoji="🔐")
     async def allow_users(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await interaction.response.send_message("❌ Only the channel creator can modify settings.", ephemeral=True)
             return
         view = AccessControlView(self.cog, self.channel)
-        await interaction.response.send_message("Select members who are permitted to join your channel:", view=view, ephemeral=True)
+        await interaction.response.send_message("Select members permitted to join your channel:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Lock / Unlock", style=discord.ButtonStyle.danger, emoji="🔒")
     async def toggle_lock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -126,57 +241,7 @@ class VCCreationPanelView(discord.ui.View):
 
     @discord.ui.button(label="Create Voice Channel", style=discord.ButtonStyle.success, emoji="➕", custom_id="tempvc_create_btn")
     async def create_vc(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        category_id = await self.cog.config.guild(guild).category_id()
-
-        if not category_id:
-            await interaction.response.send_message("❌ TempVC category is not configured. An admin must run `!tempvc setcategory`.", ephemeral=True)
-            return
-
-        category = guild.get_channel(category_id)
-        if not category or not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message("❌ Configured category was not found.", ephemeral=True)
-            return
-
-        # Check if user already owns an active voice channel
-        for vc_id, owner_id in self.cog.active_channels.items():
-            if owner_id == interaction.user.id:
-                existing_vc = guild.get_channel(vc_id)
-                if existing_vc:
-                    await interaction.response.send_message(f"❌ You already have an active channel: {existing_vc.mention}", ephemeral=True)
-                    return
-
-        # Create new Voice Channel
-        channel_name = f"🔊 {interaction.user.display_name}'s VC"
-        new_vc = await guild.create_voice_channel(
-            name=channel_name,
-            category=category,
-            reason=f"TempVC created by {interaction.user}"
-        )
-
-        # Track created channel
-        self.cog.active_channels[new_vc.id] = interaction.user.id
-
-        # Send control embed directly inside the new Voice Channel chat
-        control_embed = discord.Embed(
-            title=f"🎙️ {interaction.user.display_name}'s Voice Channel",
-            description=(
-                "Welcome to your temporary voice channel!\n\n"
-                "**Controls:**\n"
-                "• 🔢 **Set Limit:** Choose maximum users allowed (0-99).\n"
-                "• 🔐 **Allow Users:** Pick specific members who can join.\n"
-                "• 🔒 **Lock / Unlock:** Toggle general access for everyone.\n\n"
-                "⚠️ *Note: This channel will automatically delete after 5 minutes if left empty.*"
-            ),
-            color=discord.Color.teal()
-        )
-        control_view = VCControlView(self.cog, new_vc, interaction.user)
-        await new_vc.send(embed=control_embed, view=control_view)
-
-        await interaction.response.send_message(
-            f"✅ Created your voice channel: {new_vc.mention}\nJoin within 5 minutes to keep it active!",
-            ephemeral=True
-        )
+        await interaction.response.send_modal(VCCreationModal(self.cog))
 
 
 class TempVoice(commands.Cog):
@@ -215,7 +280,7 @@ class TempVoice(commands.Cog):
             # Check occupancy
             if len(channel.members) == 0:
                 self.empty_timers[channel_id] = self.empty_timers.get(channel_id, 0) + 30
-                
+
                 # Delete after 300 seconds (5 minutes)
                 if self.empty_timers[channel_id] >= 300:
                     try:
@@ -255,7 +320,8 @@ class TempVoice(commands.Cog):
             description=(
                 "Click the button below to generate your own personal temporary voice channel!\n\n"
                 "**Features:**\n"
-                "• Adjust user limits (0–99)\n"
+                "• Custom channel name and capacity limit on creation\n"
+                "• Rename channel anytime\n"
                 "• Lock or permit specific members\n"
                 "• Auto-deletes 5 minutes after everyone leaves"
             ),
