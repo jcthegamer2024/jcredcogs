@@ -85,7 +85,8 @@ class VCCreationModal(discord.ui.Modal, title="Create Your Voice Channel"):
                 "• ✏️ **Rename VC:** Change your channel's name.\n"
                 "• 🔢 **Set Limit:** Change the maximum users allowed (0-99).\n"
                 "• 🔐 **Allow Users:** Pick specific members permitted to join.\n"
-                "• 🔒 **Lock / Unlock:** Toggle general access for everyone.\n\n"
+                "• 🔒 **Lock / Unlock:** Toggle general access for everyone.\n"
+                "• 🗑️ **End VC:** Immediately delete this voice channel.\n\n"
                 "⚠️ *Note: This channel will automatically delete after 5 minutes if left empty.*"
             ),
             color=discord.Color.teal()
@@ -215,7 +216,7 @@ class VCControlView(discord.ui.View):
         view = AccessControlView(self.cog, self.channel)
         await interaction.response.send_message("Select members permitted to join your channel:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Lock / Unlock", style=discord.ButtonStyle.danger, emoji="🔒")
+    @discord.ui.button(label="Lock / Unlock", style=discord.ButtonStyle.secondary, emoji="🔒")
     async def toggle_lock(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await interaction.response.send_message("❌ Only the channel creator can modify settings.", ephemeral=True)
@@ -230,6 +231,23 @@ class VCControlView(discord.ui.View):
             # Lock
             await self.channel.set_permissions(interaction.guild.default_role, connect=False)
             await interaction.response.send_message("🔒 Channel is now **locked**. Use **Allow Users** to grant access.", ephemeral=True)
+
+    @discord.ui.button(label="End VC", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def end_vc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner.id:
+            await interaction.response.send_message("❌ Only the channel creator can end this voice channel.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("🗑️ Ending voice channel now...", ephemeral=True)
+        
+        # Clean up tracking state
+        self.cog.active_channels.pop(self.channel.id, None)
+        self.cog.empty_timers.pop(self.channel.id, None)
+
+        try:
+            await self.channel.delete(reason=f"TempVC manually ended by owner {interaction.user}")
+        except (discord.HTTPException, discord.Forbidden):
+            pass
 
 
 class VCCreationPanelView(discord.ui.View):
@@ -323,6 +341,7 @@ class TempVoice(commands.Cog):
                 "• Custom channel name and capacity limit on creation\n"
                 "• Rename channel anytime\n"
                 "• Lock or permit specific members\n"
+                "• Instant owner deletion option via `End VC` button\n"
                 "• Auto-deletes 5 minutes after everyone leaves"
             ),
             color=discord.Color.teal()
