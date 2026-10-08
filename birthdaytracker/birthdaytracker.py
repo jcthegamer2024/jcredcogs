@@ -1,0 +1,240 @@
+import calendar
+from datetime import datetime, timezone
+from typing import Optional
+
+import discord
+from discord.ext import tasks
+from redbot.core import Config, checks, commands
+
+DEFAULT_GUILD = {
+    "birthdays": {},  # str(user_id): {"day": int, "month": int, "year": Optional[int]}
+    "list_channel_id": None,
+    "list_message_id": None,
+    "announce_channel_id": None,
+    "last_announced_date": None,  # Tracks "YYYY-MM-DD" to avoid duplicate daily announcements
+}
+
+def get_ordinal_suffix(number: int) -> str:
+    """Returns ordinal string for numbers (e.g., 21 -> 21st, 22 -> 22nd, 23 -> 23rd)."""
+    if 11 <= (number % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
+class BirthdayTracker(commands.Cog):
+    """Tracks birthdays, maintains a live vertical list by month, and announces daily birthdays."""
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
+        self.config.register_guild(**DEFAULT_GUILD)
+        self.check_birthdays_loop.start()
+
+    def cog_unload(self):
+        self.check_birthdays_loop.cancel()
+
+    @tasks.loop(minutes=30)
+    async def check_birthdays_loop(self):
+        """Background loop to check and announce birthdays daily."""
+        await self.bot.wait_until_red_ready()
+        now = datetime.now(timezone.utc)
+        today_str = now.strftime("%Y-%m-%d")
+
+        for guild in self.bot.guilds:
+            channel_id = await self.config.guild(guild).announce_channel_id()
+            if not channel_id:
+                continue
+
+            last_announced = await self.config.guild(guild).last_announced_date()
+            if last_announced == today_str:
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not channel:
+                continue
+
+            birthdays = await self.config.guild(guild).birthdays()
+            if not birthdays:
+                continue
+
+            # Process members whose birthday matches today
+            announced_today = False
+            for user_id_str, data in birthdays.items():
+                if data["month"] == now.month and data["day"] == now.day:
+                    member = guild.get_member(int(user_id_str))
+                    if not member:
+                        continue
+
+                    # Calculate age text if year was provided
+                    year = data.get("year")
+                    if year:
+                        age = now.year - year
+                        bday_text = f"Happy {get_ordinal_suffix(age)} Birthday!"
+                    else:
+                        bday_text = "Happy Birthday!"
+
+                    # Build exact embed layout
+                    embed = discord.Embed(
+                        title="📣 Birthday Announcement!",
+                        color=discord.Color.teal()
+                    )
+                    embed.description = (
+                        "❯ Today is a special Day!\n"
+                        f"🎁 Please wish {member.mention} a {bday_text}"
+                    )
+
+                    await channel.send(content=member.mention, embed=embed)
+                    announced_today = True
+
+            # Mark guild as processed for today
+            await self.config.guild(guild).last_announced_date.set(today_str)
+
+    async def build_birthday_list(self, guild: discord.Guild) -> str:
+        """Formats the birthday list grouped by January to December."""
+        birthdays = await self.config.guild(guild).birthdays()
+
+        if not birthdays:
+            return "No birthdays set yet! Use `!bday set MM/DD/YYYY` to add yours."
+
+        months_data = {m: [] for m in range(1, 13)}
+        for user_id_str, data in birthdays.items():
+            months_data[data["month"]].append((user_id_str, data["day"], data.get("year")))
+
+        lines = []
+        for month_num in range(1, 13):
+            month_name = calendar.month_name[month_num]
+            entries = months_data[month_num]
+
+            if not entries:
+                continue
+
+            lines.append(f"**{month_name}**")
+            entries.sort(key=lambda x: x[1])
+
+            for uid, day, year in entries:
+                formatted_day = f"{day:02d}"
+                if year:
+                    date_str = f"{formatted_day}. {month_name} {year}"
+                else:
+                    date_str = f"{formatted_day}. {month_name}"
+                
+                lines.append(f"<@{uid}> {date_str}")
+
+            lines.append("")
+
+        return "\n".join(lines).strip()
+
+    async def update_dynamic_list(self, guild: discord.Guild):
+        """Edits or sends the persistent dynamic birthday list message."""
+        channel_id = await self.config.guild(guild).list_channel_id()
+        if not channel_id:
+            return
+
+        channel = guild.get_channel(channel_id)
+        if not channel:
+            return
+
+        content = await self.build_birthday_list(guild)
+        message_id = await self.config.guild(guild).list_message_id()
+
+        if message_id:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(content=content, allowed_mentions=discord.AllowedMentions.none())
+                return
+            except (discord.NotFound, discord.HTTPException):
+                pass
+
+        new_msg = await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
+        await self.config.guild(guild).list_message_id.set(new_msg.id)
+
+    @commands.group(name="bday", invoke_without_command=True)
+    async def bday(self, ctx):
+        """Birthday tracking commands."""
+        await ctx.send_help(ctx.command)
+
+    @bday.command(name="set")
+    async def bday_set(self, ctx, date_str: Optional[str] = None):
+        """Set your birthday.
+        
+        Format: MM/DD/YYYY or MM/DD
+        Example: !bday set 01/30/2008 or !bday set 01/30
+        """
+        if not date_str:
+            await ctx.send(
+                "❌ **Missing date format!**\n"
+                "Please provide your birthday in **MM/DD/YYYY** or **MM/DD** format.\n\n"
+                "**Examples:**\n"
+                f"• `{ctx.clean_prefix}bday set 01/30/2008`\n"
+                f"• `{ctx.clean_prefix}bday set 05/23`"
+            )
+            return
+
+        parsed_date = None
+        has_year = False
+
+        try:
+            parsed_date = datetime.strptime(date_str, "%m/%d/%Y")
+            has_year = True
+        except ValueError:
+            try:
+                parsed_date = datetime.strptime(date_str, "%m/%d")
+            except ValueError:
+                await ctx.send(
+                    "❌ **Invalid date format!** Please use **MM/DD/YYYY** or **MM/DD**.\n"
+                    f"Example: `{ctx.clean_prefix}bday set 01/30/2008`"
+                )
+                return
+
+        async with self.config.guild(ctx.guild).birthdays() as birthdays:
+            birthdays[str(ctx.author.id)] = {
+                "month": parsed_date.month,
+                "day": parsed_date.day,
+                "year": parsed_date.year if has_year else None,
+            }
+
+        month_name = calendar.month_name[parsed_date.month]
+        formatted_day = f"{parsed_date.day:02d}"
+        
+        if has_year:
+            display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
+        else:
+            display_str = f"{formatted_day}. {month_name}"
+
+        await ctx.send(f"✅ Saved your birthday as **{display_str}**!")
+        await self.update_dynamic_list(ctx.guild)
+
+    @bday.command(name="remove")
+    async def bday_remove(self, ctx):
+        """Remove your birthday from the list."""
+        async with self.config.guild(ctx.guild).birthdays() as birthdays:
+            if str(ctx.author.id) in birthdays:
+                del birthdays[str(ctx.author.id)]
+                await ctx.send("✅ Removed your birthday.")
+                await self.update_dynamic_list(ctx.guild)
+            else:
+                await ctx.send("❌ You don't have a birthday saved.")
+
+    @bday.group(name="dynamiclist")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def dynamiclist(self, ctx):
+        """Admin settings for the dynamic vertical birthday list."""
+        pass
+
+    @dynamiclist.command(name="setchannel")
+    async def set_list_channel(self, ctx, channel: discord.TextChannel):
+        """Set the channel for the live updating birthday list message."""
+        await self.config.guild(ctx.guild).list_channel_id.set(channel.id)
+        await self.config.guild(ctx.guild).list_message_id.set(None)
+
+        await ctx.send(f"✅ Dynamic birthday list channel set to {channel.mention}.")
+        await self.update_dynamic_list(ctx.guild)
+
+    @bday.command(name="setannouncechannel")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def set_announce_channel(self, ctx, channel: discord.TextChannel):
+        """Set the channel for daily birthday announcements."""
+        await self.config.guild(ctx.guild).announce_channel_id.set(channel.id)
+        await ctx.send(f"✅ Birthday announcement channel set to {channel.mention}.")
