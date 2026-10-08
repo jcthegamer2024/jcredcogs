@@ -135,7 +135,7 @@ class BirthdayTracker(commands.Cog):
         if not channel:
             return
 
-        # Attempt to delete the old message if it exists
+        # Delete the old message if it exists
         message_id = await self.config.guild(guild).list_message_id()
         if message_id:
             try:
@@ -144,7 +144,7 @@ class BirthdayTracker(commands.Cog):
             except (discord.NotFound, discord.HTTPException, discord.Forbidden):
                 pass
 
-        # Send fresh updated embed and save the new message ID
+        # Fetch clean data, send new embed, and store new message ID
         embed = await self.build_birthday_embed(guild)
         new_msg = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         await self.config.guild(guild).list_message_id.set(new_msg.id)
@@ -170,7 +170,6 @@ class BirthdayTracker(commands.Cog):
             )
             return
 
-        # Strictly enforce DD/MM/YYYY format
         try:
             parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
         except ValueError:
@@ -192,18 +191,25 @@ class BirthdayTracker(commands.Cog):
         display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
 
         await ctx.send(f"✅ Saved your birthday as **{display_str}**!")
+        
+        # Trigger update AFTER data block exits & saves
         await self.update_dynamic_list(ctx.guild)
 
     @bday.command(name="remove")
     async def bday_remove(self, ctx):
         """Remove your birthday from the list."""
+        removed = False
         async with self.config.guild(ctx.guild).birthdays() as birthdays:
             if str(ctx.author.id) in birthdays:
                 del birthdays[str(ctx.author.id)]
-                await ctx.send("✅ Removed your birthday.")
-                await self.update_dynamic_list(ctx.guild)
-            else:
-                await ctx.send("❌ You don't have a birthday saved.")
+                removed = True
+
+        if removed:
+            await ctx.send("✅ Removed your birthday.")
+            # Trigger update AFTER data block exits & saves
+            await self.update_dynamic_list(ctx.guild)
+        else:
+            await ctx.send("❌ You don't have a birthday saved.")
 
     @bday.group(name="dynamiclist")
     @checks.admin_or_permissions(manage_guild=True)
