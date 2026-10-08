@@ -1,0 +1,11 @@
+{
+  "author": ["JC"],
+  "install_msg": "BirthdayTracker installed! Set your birthday list channel using `!bday dynamiclist setchannel #channel`.",
+  "name": "BirthdayTracker",
+  "short": "Tracks birthdays with a dynamic updating list.",
+  "description": "Tracks member birthdays and maintains a live vertical list grouped by month.",
+  "tags": ["birthday", "list", "utility"],
+  "requirements": [],
+  "min_bot_version": "3.5.0",
+  "end_user_data_statement": "Stores user IDs and their provided birthday dates."
+}
