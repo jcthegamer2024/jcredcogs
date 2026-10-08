@@ -7,11 +7,11 @@ from discord.ext import tasks
 from redbot.core import Config, checks, commands
 
 DEFAULT_GUILD = {
-    "birthdays": {},  # str(user_id): {"day": int, "month": int, "year": Optional[int]}
+    "birthdays": {},  # str(user_id): {"day": int, "month": int, "year": int}
     "list_channel_id": None,
     "list_message_id": None,
     "announce_channel_id": None,
-    "last_announced_date": None,  # Tracks "YYYY-MM-DD" to prevent duplicate daily posts
+    "last_announced_date": None,  # Tracks "YYYY-MM-DD"
 }
 
 def get_ordinal_suffix(number: int) -> str:
@@ -24,7 +24,7 @@ def get_ordinal_suffix(number: int) -> str:
 
 
 class BirthdayTracker(commands.Cog):
-    """Tracks birthdays, maintains a live vertical list by month, and announces daily birthdays."""
+    """Tracks birthdays, maintains a live vertical embed list by month, and announces daily birthdays."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -66,7 +66,6 @@ class BirthdayTracker(commands.Cog):
                     if not member:
                         continue
 
-                    # Calculate age text if year was provided
                     year = data.get("year")
                     if year:
                         age = now.year - year
@@ -74,7 +73,6 @@ class BirthdayTracker(commands.Cog):
                     else:
                         bday_text = "Happy Birthday!"
 
-                    # Build exact embed layout
                     embed = discord.Embed(
                         title="📣 Birthday Announcement!",
                         color=discord.Color.teal()
@@ -86,16 +84,13 @@ class BirthdayTracker(commands.Cog):
 
                     await channel.send(content=member.mention, embed=embed)
 
-            # Mark guild as processed for today
             await self.config.guild(guild).last_announced_date.set(today_str)
 
-    async def build_birthday_list(self, guild: discord.Guild) -> str:
-        """Formats the birthday list grouped by January to December."""
+    async def build_birthday_embed(self, guild: discord.Guild) -> discord.Embed:
+        """Formats the birthday list into an Embed grouped from January to December."""
         birthdays = await self.config.guild(guild).birthdays()
 
-        if not birthdays:
-            return "No birthdays set yet! Use `!bday set MM/DD/YYYY` or `!bday set DD/MM/YYYY` to add yours."
-
+        # Group birthdays by month (1 to 12)
         months_data = {m: [] for m in range(1, 13)}
         for user_id_str, data in birthdays.items():
             months_data[data["month"]].append((user_id_str, data["day"], data.get("year")))
@@ -105,27 +100,33 @@ class BirthdayTracker(commands.Cog):
             month_name = calendar.month_name[month_num]
             entries = months_data[month_num]
 
-            if not entries:
-                continue
-
             lines.append(f"**{month_name}**")
-            entries.sort(key=lambda x: x[1])
 
-            for uid, day, year in entries:
-                formatted_day = f"{day:02d}"
-                if year:
-                    date_str = f"{formatted_day}. {month_name} {year}"
-                else:
-                    date_str = f"{formatted_day}. {month_name}"
-                
-                lines.append(f"<@{uid}> {date_str}")
+            if not entries:
+                lines.append("› *No birthdays*")
+            else:
+                entries.sort(key=lambda x: x[1])
+                for uid, day, year in entries:
+                    formatted_day = f"{day:02d}"
+                    if year:
+                        date_str = f"{formatted_day}. {month_name} {year}"
+                    else:
+                        date_str = f"{formatted_day}. {month_name}"
+                    
+                    lines.append(f"› <@{uid}> {date_str}")
 
-            lines.append("")
+            lines.append("")  # Blank line separator between months
 
-        return "\n".join(lines).strip()
+        embed = discord.Embed(
+            title="🎂 Server Birthdays",
+            description="\n".join(lines).strip(),
+            color=discord.Color.teal()
+        )
+        embed.set_footer(text="Use !bday set DD/MM/YYYY to add your birthday!")
+        return embed
 
     async def update_dynamic_list(self, guild: discord.Guild):
-        """Edits or sends the persistent dynamic birthday list message."""
+        """Edits or sends the persistent dynamic birthday list embed."""
         channel_id = await self.config.guild(guild).list_channel_id()
         if not channel_id:
             return
@@ -134,18 +135,18 @@ class BirthdayTracker(commands.Cog):
         if not channel:
             return
 
-        content = await self.build_birthday_list(guild)
+        embed = await self.build_birthday_embed(guild)
         message_id = await self.config.guild(guild).list_message_id()
 
         if message_id:
             try:
                 msg = await channel.fetch_message(message_id)
-                await msg.edit(content=content, allowed_mentions=discord.AllowedMentions.none())
+                await msg.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
                 return
             except (discord.NotFound, discord.HTTPException):
                 pass
 
-        new_msg = await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
+        new_msg = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         await self.config.guild(guild).list_message_id.set(new_msg.id)
 
     @commands.group(name="bday", invoke_without_command=True)
@@ -157,47 +158,24 @@ class BirthdayTracker(commands.Cog):
     async def bday_set(self, ctx, date_str: Optional[str] = None):
         """Set your birthday.
         
-        Supports MM/DD/YYYY, DD/MM/YYYY, MM/DD, or DD/MM
-        Examples: !bday set 06/25/2006 or !bday set 25/06/2006
+        Format: DD/MM/YYYY
+        Example: !bday set 25/06/2006
         """
         if not date_str:
             await ctx.send(
                 "❌ **Missing date format!**\n"
-                "Please provide your birthday in **MM/DD/YYYY** or **DD/MM/YYYY** format.\n\n"
-                "**Examples:**\n"
-                f"• `{ctx.clean_prefix}bday set 06/25/2006`\n"
+                "Please provide your birthday in **DD/MM/YYYY** format.\n\n"
+                "**Example:**\n"
                 f"• `{ctx.clean_prefix}bday set 25/06/2006`"
             )
             return
 
-        parsed_date = None
-        has_year = False
-
-        # Formats to attempt parsing
-        formats_with_year = ["%m/%d/%Y", "%d/%m/%Y"]
-        formats_without_year = ["%m/%d", "%d/%m"]
-
-        # 1. Try parsing formats with year
-        for fmt in formats_with_year:
-            try:
-                parsed_date = datetime.strptime(date_str, fmt)
-                has_year = True
-                break
-            except ValueError:
-                continue
-
-        # 2. Try parsing formats without year
-        if not parsed_date:
-            for fmt in formats_without_year:
-                try:
-                    parsed_date = datetime.strptime(date_str, fmt)
-                    break
-                except ValueError:
-                    continue
-
-        if not parsed_date:
+        # Strictly enforce DD/MM/YYYY format
+        try:
+            parsed_date = datetime.strptime(date_str, "%d/%m/%Y")
+        except ValueError:
             await ctx.send(
-                "❌ **Invalid date format!** Please use **MM/DD/YYYY** or **DD/MM/YYYY**.\n"
+                "❌ **Invalid date format!** Please strictly use **DD/MM/YYYY**.\n"
                 f"Example: `{ctx.clean_prefix}bday set 25/06/2006`"
             )
             return
@@ -206,16 +184,12 @@ class BirthdayTracker(commands.Cog):
             birthdays[str(ctx.author.id)] = {
                 "month": parsed_date.month,
                 "day": parsed_date.day,
-                "year": parsed_date.year if has_year else None,
+                "year": parsed_date.year,
             }
 
         month_name = calendar.month_name[parsed_date.month]
         formatted_day = f"{parsed_date.day:02d}"
-        
-        if has_year:
-            display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
-        else:
-            display_str = f"{formatted_day}. {month_name}"
+        display_str = f"{formatted_day}. {month_name} {parsed_date.year}"
 
         await ctx.send(f"✅ Saved your birthday as **{display_str}**!")
         await self.update_dynamic_list(ctx.guild)
@@ -239,7 +213,7 @@ class BirthdayTracker(commands.Cog):
 
     @dynamiclist.command(name="setchannel")
     async def set_list_channel(self, ctx, channel: discord.TextChannel):
-        """Set the channel for the live updating birthday list message."""
+        """Set the channel for the live updating birthday list embed."""
         await self.config.guild(ctx.guild).list_channel_id.set(channel.id)
         await self.config.guild(ctx.guild).list_message_id.set(None)
 
