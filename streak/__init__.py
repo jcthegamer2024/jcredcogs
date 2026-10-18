@@ -1,4 +1,4 @@
-from .streaks import streak
+from .streak import streak
 
 
 async def setup(bot):
