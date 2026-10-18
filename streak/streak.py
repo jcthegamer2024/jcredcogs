@@ -1,9 +1,9 @@
+from datetime import datetime, timezone
 import discord
 from redbot.core import commands, Config
-from datetime import datetime, timezone
 
 class streak(commands.Cog):
-    """A streak tracking cog for images, stickers, and GIFs."""
+    """A UTC calendar daily streak tracking cog for images, stickers, and GIFs."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -51,7 +51,7 @@ class streak(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
-        streak_channel_id = await self.config.guild(message.guild).streak_channel
+        streak_channel_id = await self.config.guild(message.guild).streak_channel()
 
         if not streak_channel_id or message.channel.id != streak_channel_id:
             return
@@ -59,26 +59,30 @@ class streak(commands.Cog):
         if not self._is_valid_streak_content(message):
             return
 
-        today_str = datetime.now(timezone.utc).strftime("%Y-m-d")
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         member_config = self.config.member(message.author)
         
         last_date = await member_config.last_date()
         current_streak = await member_config.current_streak()
         best_streak = await member_config.best_streak()
 
+        # If already updated today in UTC, ignore
         if last_date == today_str:
             return
 
         if last_date is None:
+            # First time starting a streak
             current_streak = 1
         else:
-            last_dt = datetime.strptime(last_date, "%Y-m-d").date()
-            today_dt = datetime.strptime(today_str, "%Y-m-d").date()
+            last_dt = datetime.strptime(last_date, "%Y-%m-%d").date()
+            today_dt = datetime.strptime(today_str, "%Y-%m-%d").date()
             diff = (today_dt - last_dt).days
 
             if diff == 1:
+                # Consecutive day -> Increment streak
                 current_streak += 1
             elif diff > 1:
+                # Missed a day or more -> Reset streak back to 1
                 current_streak = 1
             else:
                 return
@@ -86,10 +90,12 @@ class streak(commands.Cog):
         if current_streak > best_streak:
             best_streak = current_streak
 
+        # Update stored member values
         await member_config.current_streak.set(current_streak)
         await member_config.best_streak.set(best_streak)
         await member_config.last_date.set(today_str)
 
+        # Build StreakBot clone embed (without shields)
         embed = discord.Embed(
             description=f"✅ **• Streak updated**\n\n• {message.author.mention}\n\t• 🔥 **{current_streak}**",
             color=discord.Color.green()
@@ -123,6 +129,8 @@ class streak(commands.Cog):
         best = await member_config.best_streak()
         last_date = await member_config.last_date()
 
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
         embed = discord.Embed(
             title=f"🔥 Streak Stats for {member.display_name}",
             color=discord.Color.orange()
@@ -131,10 +139,12 @@ class streak(commands.Cog):
         embed.add_field(name="Current Streak", value=f"🔥 {current}", inline=True)
         embed.add_field(name="Best Streak", value=f"⭐ {best}", inline=True)
         
-        if last_date:
-            embed.set_footer(text=f"Last streak update: {last_date} UTC")
+        if last_date == today_str:
+            embed.set_footer(text="Streak updated today! Post again tomorrow (UTC) to extend.")
+        elif last_date:
+            embed.set_footer(text=f"Last streak update: {last_date} UTC. Post today to maintain it!")
         else:
-            embed.set_footer(text="No active streak yet.")
+            embed.set_footer(text="No active streak yet. Post an image/GIF/sticker in the streak channel!")
 
         await ctx.send(embed=embed)
 
