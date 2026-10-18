@@ -133,12 +133,12 @@ class streak(commands.Cog):
         best_streak = await member_config.best_streak()
 
         if last_date == today_str:
-            # Duplicate valid post today: No checkmark reaction, just orange embed reply
+            # Duplicate valid post today: No checkmark reaction, persistent orange embed
             embed = discord.Embed(
                 description=f"⚠️ **• Streak already updated**\n\n• {message.author.mention}, you've already logged your streak for today! Come back tomorrow (UTC).",
                 color=discord.Color.orange()
             )
-            await message.reply(embed=embed, delete_after=10)
+            await message.reply(embed=embed)
             return
 
         if last_date is None:
