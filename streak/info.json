@@ -1,0 +1,11 @@
+{
+    "author": ["JC"],
+    "install_msg": "Thank you for installing the Streaks cog! Use [p]help streaks to get started.",
+    "name": "Streaks",
+    "short": "A streak tracking system requiring images, stickers, or GIFs.",
+    "description": "Allows server admins to set a streak channel where users must post images, stickers, or GIFs daily to maintain their streaks.",
+    "tags": ["streak", "fun", "activity"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "type": "standard"
+}
