@@ -66,12 +66,10 @@ class streak(commands.Cog):
         current_streak = await member_config.current_streak()
         best_streak = await member_config.best_streak()
 
-        # If already updated today in UTC, ignore
         if last_date == today_str:
             return
 
         if last_date is None:
-            # First time starting a streak
             current_streak = 1
         else:
             last_dt = datetime.strptime(last_date, "%Y-%m-%d").date()
@@ -79,10 +77,8 @@ class streak(commands.Cog):
             diff = (today_dt - last_dt).days
 
             if diff == 1:
-                # Consecutive day -> Increment streak
                 current_streak += 1
             elif diff > 1:
-                # Missed a day or more -> Reset streak back to 1
                 current_streak = 1
             else:
                 return
@@ -90,12 +86,10 @@ class streak(commands.Cog):
         if current_streak > best_streak:
             best_streak = current_streak
 
-        # Update stored member values
         await member_config.current_streak.set(current_streak)
         await member_config.best_streak.set(best_streak)
         await member_config.last_date.set(today_str)
 
-        # Build StreakBot clone embed (without shields)
         embed = discord.Embed(
             description=f"✅ **• Streak updated**\n\n• {message.author.mention}\n\t• 🔥 **{current_streak}**",
             color=discord.Color.green()
