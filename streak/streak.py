@@ -105,7 +105,7 @@ class streak(commands.Cog):
         pass
 
     @streakset.command(name="channel")
-    @commands.admin_permissions(manage_guild=True)
+    @commands.admin_or_permissions(manage_guild=True)
     async def streakset_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Set the channel where streak images/GIFs/stickers must be posted."""
         await self.config.guild(ctx.guild).streak_channel.set(channel.id)
