@@ -1,9 +1,10 @@
+import asyncio
 from datetime import datetime, timezone
 import discord
 from redbot.core import commands, Config
 
 class streak(commands.Cog):
-    """A UTC calendar daily streak tracking cog for images, stickers, and GIFs."""
+    """A UTC calendar daily streak tracking cog for images, stickers, and GIFs with expiry reminders."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -18,11 +19,77 @@ class streak(commands.Cog):
         default_member = {
             "current_streak": 0,
             "best_streak": 0,
-            "last_date": None,  # Stored as YYYY-MM-DD in UTC
+            "last_date": None,      # Stored as YYYY-MM-DD in UTC
+            "last_remind_date": None, # Tracks if user was already pinged today
         }
 
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
+
+        # Start the background checker loop
+        self.reminder_task = self.bot.loop.create_task(self.streak_reminder_loop())
+
+    def cog_unload(self):
+        """Cancel background loop when cog unloads."""
+        if self.reminder_task:
+            self.reminder_task.cancel()
+
+    async def streak_reminder_loop(self):
+        """Background loop running every 30 minutes to check for expiring streaks."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                await self._check_expiring_streaks()
+            except Exception as e:
+                print(f"Error in streak reminder loop: {e}")
+            await asyncio.sleep(1800)  # Check every 30 minutes
+
+    async def _check_expiring_streaks(self):
+        now_utc = datetime.now(timezone.utc)
+        today_str = now_utc.strftime("%Y-%m-%d")
+        
+        # Calculate yesterday's date string
+        from datetime import timedelta
+        yesterday_str = (now_utc - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # Only trigger reminders during the last 3 hours of the UTC day (21:00 to 23:59 UTC)
+        if now_utc.hour < 21:
+            return
+
+        all_guilds_data = await self.config.all_guilds()
+        for guild_id, guild_data in all_guilds_data.items():
+            channel_id = guild_data.get("streak_channel")
+            if not channel_id:
+                continue
+
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not channel:
+                continue
+
+            all_members_data = await self.config.all_members(guild)
+            for member_id, member_data in all_members_data.items():
+                current_streak = member_data.get("current_streak", 0)
+                last_date = member_data.get("last_date")
+                last_remind_date = member_data.get("last_remind_date")
+
+                # If they have an active streak, last posted YESTERDAY, and haven't been pinged today yet
+                if current_streak > 0 and last_date == yesterday_str and last_remind_date != today_str:
+                    member = guild.get_member(member_id)
+                    if member:
+                        try:
+                            embed = discord.Embed(
+                                description=f"⚠️ {member.mention}, your **{current_streak}** day streak is about to expire in a couple of hours! Post an image, GIF, or sticker in {channel.mention} to keep it alive!",
+                                color=discord.Color.red()
+                            )
+                            await channel.send(embed=embed)
+                            # Mark that we've reminded them for today
+                            await self.config.member(member).last_remind_date.set(today_str)
+                        except discord.HTTPException:
+                            pass
 
     def _is_valid_streak_content(self, message: discord.Message) -> bool:
         """Checks if a message contains an image attachment, sticker, or gif."""
@@ -57,6 +124,10 @@ class streak(commands.Cog):
             return
 
         if not self._is_valid_streak_content(message):
+            try:
+                await message.add_reaction("❌")
+            except discord.HTTPException:
+                pass
             return
 
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -67,6 +138,10 @@ class streak(commands.Cog):
         best_streak = await member_config.best_streak()
 
         if last_date == today_str:
+            try:
+                await message.add_reaction("✅")
+            except discord.HTTPException:
+                pass
             return
 
         if last_date is None:
@@ -89,6 +164,11 @@ class streak(commands.Cog):
         await member_config.current_streak.set(current_streak)
         await member_config.best_streak.set(best_streak)
         await member_config.last_date.set(today_str)
+
+        try:
+            await message.add_reaction("✅")
+        except discord.HTTPException:
+            pass
 
         embed = discord.Embed(
             description=f"✅ **• Streak updated**\n\n• {message.author.mention}\n\t• 🔥 **{current_streak}**",
