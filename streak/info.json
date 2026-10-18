@@ -2,10 +2,11 @@
     "author": ["jcthegamer2024"],
     "install_msg": "Streak cog installed! Use [p]streakset channel to pick your streak channel.",
     "name": "streak",
-    "short": "A streak tracking system requiring images, stickers, or GIFs.",
-    "description": "Streak tracking clone for RedBot without shields.",
+    "short": "Streak tracking system for RedBot.",
+    "description": "Allows server admins to set a channel where users post images/stickers/GIFs to maintain streaks.",
     "tags": ["streak"],
     "min_bot_version": "3.5.0",
     "hidden": false,
-    "type": "standard"
+    "disabled": false,
+    "type": "COG"
 }
