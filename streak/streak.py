@@ -133,11 +133,7 @@ class streak(commands.Cog):
         best_streak = await member_config.best_streak()
 
         if last_date == today_str:
-            try:
-                await message.add_reaction("✅")
-            except discord.HTTPException:
-                pass
-            
+            # Duplicate valid post today: No checkmark reaction, just orange embed reply
             embed = discord.Embed(
                 description=f"⚠️ **• Streak already updated**\n\n• {message.author.mention}, you've already logged your streak for today! Come back tomorrow (UTC).",
                 color=discord.Color.orange()
@@ -179,20 +175,14 @@ class streak(commands.Cog):
         
         await message.reply(embed=embed)
 
-    @commands.group()
+    @commands.group(name="streak")
     @commands.guild_only()
-    async def streakset(self, ctx: commands.Context):
-        """Configure streak settings."""
-        pass
+    async def streak(self, ctx: commands.Context):
+        """Streak command group."""
+        if ctx.invoked_subcommand is None:
+            await ctx.invoke(self.streak_check)
 
-    @streakset.command(name="channel")
-    @commands.admin_or_permissions(manage_guild=True)
-    async def streakset_channel(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Set the channel where streak images/GIFs/stickers must be posted."""
-        await self.config.guild(ctx.guild).streak_channel.set(channel.id)
-        await ctx.send(f"✅ Streak channel has been set to {channel.mention}.")
-
-    @commands.command(name="streak")
+    @streak.command(name="check")
     @commands.guild_only()
     async def streak_check(self, ctx: commands.Context, member: discord.Member = None):
         """Check your own or another user's current streak."""
@@ -222,6 +212,18 @@ class streak(commands.Cog):
             embed.set_footer(text="No active streak yet. Post an image/GIF/sticker in the streak channel!")
 
         await ctx.send(embed=embed)
+
+    @streak.command(name="reset")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def streak_reset(self, ctx: commands.Context, member: discord.Member):
+        """Reset a user's streak back to 0."""
+        member_config = self.config.member(member)
+        await member_config.current_streak.set(0)
+        await member_config.best_streak.set(0)
+        await member_config.last_date.set(None)
+        await member_config.last_remind_date.set(None)
+
+        await ctx.send(f"✅ Successfully reset streak data for {member.mention}.")
 
     @commands.command(name="streaklb", aliases=["streaksleaderboard"])
     @commands.guild_only()
@@ -258,3 +260,16 @@ class streak(commands.Cog):
             color=discord.Color.orange()
         )
         await ctx.send(embed=embed)
+
+    @commands.group()
+    @commands.guild_only()
+    async def streakset(self, ctx: commands.Context):
+        """Configure streak settings."""
+        pass
+
+    @streakset.command(name="channel")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def streakset_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Set the channel where streak images/GIFs/stickers must be posted."""
+        await self.config.guild(ctx.guild).streak_channel.set(channel.id)
+        await ctx.send(f"✅ Streak channel has been set to {channel.mention}.")
