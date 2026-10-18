@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import discord
 from redbot.core import commands, Config
 
@@ -19,7 +19,7 @@ class streak(commands.Cog):
         default_member = {
             "current_streak": 0,
             "best_streak": 0,
-            "last_date": None,      # Stored as YYYY-MM-DD in UTC
+            "last_date": None,        # Stored as YYYY-MM-DD in UTC
             "last_remind_date": None, # Tracks if user was already pinged today
         }
 
@@ -47,9 +47,6 @@ class streak(commands.Cog):
     async def _check_expiring_streaks(self):
         now_utc = datetime.now(timezone.utc)
         today_str = now_utc.strftime("%Y-%m-%d")
-        
-        # Calculate yesterday's date string
-        from datetime import timedelta
         yesterday_str = (now_utc - timedelta(days=1)).strftime("%Y-%m-%d")
 
         # Only trigger reminders during the last 3 hours of the UTC day (21:00 to 23:59 UTC)
@@ -76,7 +73,6 @@ class streak(commands.Cog):
                 last_date = member_data.get("last_date")
                 last_remind_date = member_data.get("last_remind_date")
 
-                # If they have an active streak, last posted YESTERDAY, and haven't been pinged today yet
                 if current_streak > 0 and last_date == yesterday_str and last_remind_date != today_str:
                     member = guild.get_member(member_id)
                     if member:
@@ -86,7 +82,6 @@ class streak(commands.Cog):
                                 color=discord.Color.red()
                             )
                             await channel.send(embed=embed)
-                            # Mark that we've reminded them for today
                             await self.config.member(member).last_remind_date.set(today_str)
                         except discord.HTTPException:
                             pass
@@ -142,6 +137,12 @@ class streak(commands.Cog):
                 await message.add_reaction("✅")
             except discord.HTTPException:
                 pass
+            
+            embed = discord.Embed(
+                description=f"⚠️ **• Streak already updated**\n\n• {message.author.mention}, you've already logged your streak for today! Come back tomorrow (UTC).",
+                color=discord.Color.orange()
+            )
+            await message.reply(embed=embed, delete_after=10)
             return
 
         if last_date is None:
