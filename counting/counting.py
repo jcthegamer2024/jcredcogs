@@ -2,7 +2,7 @@ import discord
 from redbot.core import commands, Config
 
 class Counting(commands.Cog):
-    """A direction-switching counting game with rounds, milestones, and turn enforcement."""
+    """A standard counting game with rounds, milestones, and turn enforcement."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -11,7 +11,6 @@ class Counting(commands.Cog):
             channel=None,
             current_number=0,
             last_user=None,
-            mode="UP",  # UP or DOWN
             round_high=0,
             round_length=0,
             start_number=0
@@ -38,10 +37,9 @@ class Counting(commands.Cog):
         await self.config.guild(ctx.guild).round_high.set(number)
         await self.config.guild(ctx.guild).round_length.set(0)
         await self.config.guild(ctx.guild).start_number.set(number)
-        await self.config.guild(ctx.guild).mode.set("UP")
 
         # Update topic immediately
-        await self.update_topic(ctx.channel, number + 1, "UP", 0)
+        await self.update_topic(ctx.channel, number + 1, 0)
 
         await ctx.send(f"Starting number set to **{number}**")
 
@@ -55,14 +53,13 @@ class Counting(commands.Cog):
             f"This channel ID: `{ctx.channel.id}`\n"
             f"Match: `{stored == ctx.channel.id}`"
         )
-        
 
     # ============================================================
     # Helpers
     # ============================================================
 
-    async def update_topic(self, channel: discord.TextChannel, next_number: int, mode: str, length: int):
-        topic = f"Let's count! - Next number is {next_number} - Mode: {mode} - Chain length: {length}"
+    async def update_topic(self, channel: discord.TextChannel, next_number: int, length: int):
+        topic = f"Let's count! - Next number is {next_number} - Chain length: {length}"
         try:
             await channel.edit(topic=topic)
         except discord.Forbidden:
@@ -84,34 +81,19 @@ class Counting(commands.Cog):
             f"Chain length: **{length}**"
         )
 
-    # ============================================================
-    # Direction Flip + Restart Logic (FIXED)
-    # ============================================================
+    async def reset_counting(self, guild, channel):
+        """Resets the counting game back to 0."""
+        await channel.send("**Counting reset to 0!**")
+        await channel.send("0")
 
-    async def flip_direction_and_restart(self, guild, channel, last_correct):
-        mode = await self.config.guild(guild).mode()
-
-        # Flip direction
-        new_mode = "DOWN" if mode == "UP" else "UP"
-        await self.config.guild(guild).mode.set(new_mode)
-
-        # Announce direction change
-        await channel.send(f"**Switching direction → {new_mode}!**")
-
-        # Bot posts the restart number (last correct)
-        await channel.send(str(last_correct))
-
-        # Reset round stats
-        await self.config.guild(guild).current_number.set(last_correct)
+        # Reset round and count stats to 0
+        await self.config.guild(guild).current_number.set(0)
         await self.config.guild(guild).last_user.set(None)
         await self.config.guild(guild).round_length.set(0)
-        await self.config.guild(guild).round_high.set(last_correct)
+        await self.config.guild(guild).round_high.set(0)
 
-        # Compute next expected number
-        next_number = last_correct + (1 if new_mode == "UP" else -1)
-
-        # Update topic immediately (FIXED)
-        await self.update_topic(channel, next_number, new_mode, 0)
+        # Update topic for the next expected number (1)
+        await self.update_topic(channel, 1, 0)
 
     # ============================================================
     # Message Listener
@@ -135,19 +117,18 @@ class Counting(commands.Cog):
 
         current = await self.config.guild(guild).current_number()
         last_user = await self.config.guild(guild).last_user()
-        mode = await self.config.guild(guild).mode()
         round_high = await self.config.guild(guild).round_high()
         round_length = await self.config.guild(guild).round_length()
 
-        # Turn enforcement
+        # Turn enforcement (same user counting twice in a row)
         if last_user is not None and message.author.id == last_user:
             await message.add_reaction("❌")
             await self.announce_round_end(message.channel, round_high, round_length)
-            await self.flip_direction_and_restart(guild, message.channel, current)
+            await self.reset_counting(guild, message.channel)
             return
 
-        # Determine expected number
-        expected = current + 1 if mode == "UP" else current - 1
+        # Expected number is always current + 1
+        expected = current + 1
 
         # Correct number
         if number == expected:
@@ -159,20 +140,19 @@ class Counting(commands.Cog):
             new_length = round_length + 1
             await self.config.guild(guild).round_length.set(new_length)
 
-            if (mode == "UP" and number > round_high) or (mode == "DOWN" and number < round_high):
+            if number > round_high:
                 await self.config.guild(guild).round_high.set(number)
 
             await self.update_topic(
                 message.channel,
-                number + (1 if mode == "UP" else -1),
-                mode,
+                number + 1,
                 new_length
             )
 
             await self.milestone(message, number)
             return
 
-        # Incorrect number → round ends
+        # Incorrect number → round ends and resets to 0
         await message.add_reaction("❌")
         await self.announce_round_end(message.channel, round_high, round_length)
-        await self.flip_direction_and_restart(guild, message.channel, current)
+        await self.reset_counting(guild, message.channel)
