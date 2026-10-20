@@ -87,7 +87,7 @@ class streak(commands.Cog):
                             pass
 
     def _is_valid_streak_content(self, message: discord.Message) -> bool:
-        """Checks if a message contains an image attachment, sticker, or gif."""
+        """Checks if a message contains an image attachment, sticker, or gif link."""
         if message.stickers:
             return True
 
@@ -103,6 +103,10 @@ class streak(commands.Cog):
                     return True
 
         content_lower = message.content.lower()
+        gif_providers = ['tenor.com', 'giphy.com', 'imgur.com', 'gfycat.com']
+        if any(provider in content_lower for provider in gif_providers):
+            return True
+
         if any(ext in content_lower for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
             return True
 
@@ -117,6 +121,15 @@ class streak(commands.Cog):
 
         if not streak_channel_id or message.channel.id != streak_channel_id:
             return
+
+        # If it looks like a URL/link, give Discord 1.5s to generate the embed
+        if "http://" in message.content.lower() or "https://" in message.content.lower():
+            await asyncio.sleep(1.5)
+            # Refetch message to get generated embeds
+            try:
+                message = await message.channel.fetch_message(message.id)
+            except discord.HTTPException:
+                pass
 
         if not self._is_valid_streak_content(message):
             try:
@@ -133,7 +146,6 @@ class streak(commands.Cog):
         best_streak = await member_config.best_streak()
 
         if last_date == today_str:
-            # Duplicate valid post today: No checkmark reaction, persistent orange embed
             embed = discord.Embed(
                 description=f"⚠️ **• Streak already updated**\n\n• {message.author.mention}, you've already logged your streak for today! Come back tomorrow (UTC).",
                 color=discord.Color.orange()
