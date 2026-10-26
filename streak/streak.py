@@ -4,7 +4,7 @@ import discord
 from redbot.core import commands, Config
 
 class streak(commands.Cog):
-    """A UTC calendar daily streak tracking cog for images, stickers, and GIFs with expiry reminders."""
+    """A UTC calendar daily streak tracking cog for images, stickers, and GIFs with 6h and 3h expiry reminders."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -19,8 +19,9 @@ class streak(commands.Cog):
         default_member = {
             "current_streak": 0,
             "best_streak": 0,
-            "last_date": None,        # Stored as YYYY-MM-DD in UTC
-            "last_remind_date": None, # Tracks if user was already pinged today
+            "last_date": None,         # Stored as YYYY-MM-DD in UTC
+            "reminded_date_6h": None,  # Tracks 6h reminder date
+            "reminded_date_3h": None,  # Tracks 3h reminder date
         }
 
         self.config.register_guild(**default_guild)
@@ -49,8 +50,9 @@ class streak(commands.Cog):
         today_str = now_utc.strftime("%Y-%m-%d")
         yesterday_str = (now_utc - timedelta(days=1)).strftime("%Y-%m-%d")
 
-        # Only trigger reminders during the last 3 hours of the UTC day (21:00 to 23:59 UTC)
-        if now_utc.hour < 21:
+        # Reminders only trigger from 18:00 UTC onwards (6 hours left in UTC day)
+        current_hour = now_utc.hour
+        if current_hour < 18:
             return
 
         all_guilds_data = await self.config.all_guilds()
@@ -71,18 +73,38 @@ class streak(commands.Cog):
             for member_id, member_data in all_members_data.items():
                 current_streak = member_data.get("current_streak", 0)
                 last_date = member_data.get("last_date")
-                last_remind_date = member_data.get("last_remind_date")
+                reminded_date_6h = member_data.get("reminded_date_6h")
+                reminded_date_3h = member_data.get("reminded_date_3h")
 
-                if current_streak > 0 and last_date == yesterday_str and last_remind_date != today_str:
+                # Only remind users who have an active streak and last posted yesterday
+                if current_streak > 0 and last_date == yesterday_str:
                     member = guild.get_member(member_id)
-                    if member:
+                    if not member:
+                        continue
+
+                    # 3-Hour Warning (21:00 UTC to 23:59 UTC)
+                    if current_hour >= 21 and reminded_date_3h != today_str:
                         try:
                             embed = discord.Embed(
-                                description=f"⚠️ {member.mention}, your **{current_streak}** day streak is about to expire in a couple of hours! Post an image, GIF, or sticker in {channel.mention} to keep it alive!",
+                                description=f"⚠️ Your **{current_streak}** day streak is about to expire in under **3 hours**! Post an image, GIF, or sticker in {channel.mention} right now to keep it alive!",
                                 color=discord.Color.red()
                             )
-                            await channel.send(embed=embed)
-                            await self.config.member(member).last_remind_date.set(today_str)
+                            # Pinged outside the embed so Discord actually notifies the user
+                            await channel.send(content=member.mention, embed=embed)
+                            await self.config.member(member).reminded_date_3h.set(today_str)
+                        except discord.HTTPException:
+                            pass
+
+                    # 6-Hour Warning (18:00 UTC to 20:59 UTC)
+                    elif 18 <= current_hour < 21 and reminded_date_6h != today_str:
+                        try:
+                            embed = discord.Embed(
+                                description=f"⏰ Friendly reminder: your **{current_streak}** day streak will expire in about **6 hours**! Don't forget to drop an image, GIF, or sticker in {channel.mention}.",
+                                color=discord.Color.orange()
+                            )
+                            # Pinged outside the embed so Discord actually notifies the user
+                            await channel.send(content=member.mention, embed=embed)
+                            await self.config.member(member).reminded_date_6h.set(today_str)
                         except discord.HTTPException:
                             pass
 
@@ -125,7 +147,6 @@ class streak(commands.Cog):
         # If it looks like a URL/link, give Discord 1.5s to generate the embed
         if "http://" in message.content.lower() or "https://" in message.content.lower():
             await asyncio.sleep(1.5)
-            # Refetch message to get generated embeds
             try:
                 message = await message.channel.fetch_message(message.id)
             except discord.HTTPException:
@@ -233,7 +254,8 @@ class streak(commands.Cog):
         await member_config.current_streak.set(0)
         await member_config.best_streak.set(0)
         await member_config.last_date.set(None)
-        await member_config.last_remind_date.set(None)
+        await member_config.reminded_date_6h.set(None)
+        await member_config.reminded_date_3h.set(None)
 
         await ctx.send(f"✅ Successfully reset streak data for {member.mention}.")
 
