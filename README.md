@@ -59,7 +59,22 @@ A dynamic temporary voice channel generator with interactive UI controls and aut
 * One-click general Lock/Unlock access toggle
 * Dedicated control dashboard sent directly inside the new channel's chat
 * Automated background cleanup loop deleting channels empty for 5+ minutes
+
+--
+
+### 5. 🔥 Streak
+
+A UTC-based daily streak tracking system designed for images, stickers, and GIFs with automated multi-stage expiry reminders.
+
+**Features**
+
+* UTC calendar day resets for reliable daily tracking
+* Content validation supporting image attachments, stickers, GIFs, and media links (Tenor, Giphy, Imgur, direct image formats)
+* Clean visual feedback (`✅` for successful updates, `❌` for invalid attempts, and persistent warnings for daily duplicates)
+* Automated `@mention` background reminders at 6 hours and 3 hours before UTC day expiration
+* Comprehensive stats tracking (`!streak`) and a server leaderboard (`!streaklb`)
+* Admin controls including user streak resets (`!streak reset`) and configurable channel binding (`!streakset channel`)
 ## 🛠 Installation
 
 Add the repo to your Redbot:
-p]repo add jcredcogs https://github.com/jcthegamer2024/jcredcogs
+[p]repo add jcredcogs https://github.com/jcthegamer2024/jcredcogs
